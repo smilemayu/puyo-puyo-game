@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   applyGravity,
   anyMatch,
@@ -31,8 +31,6 @@ import {
 } from "@/lib/puyo";
 
 // ─── Visual config ────────────────────────────────────────────────────────────
-
-const CELL = 46;
 
 const PUYO: Record<PuyoColor, { grad: string; glow: string; light: string }> = {
   red:    { grad: "radial-gradient(circle at 38% 32%, #ff9090, #e53e3e 55%, #7b1a1a)", glow: "#e53e3e", light: "#ff9090" },
@@ -111,6 +109,14 @@ export default function PuyoGame() {
   const dropTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chainTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const displayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [cellSize, setCellSize] = useState(46);
+
+  useEffect(() => {
+    const update = () => setCellSize(window.innerWidth < 640 ? 36 : 46);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   function get() { return stateRef.current; }
 
@@ -174,7 +180,6 @@ export default function PuyoGame() {
       displayChain: chain,
     });
 
-    // Clear display chain label after 1.5s
     if (displayTimer.current) clearTimeout(displayTimer.current);
     displayTimer.current = setTimeout(() => set({ displayChain: 0 }), 1500);
 
@@ -240,6 +245,24 @@ export default function PuyoGame() {
     }
   }
 
+  function moveLeft() {
+    const s = get();
+    if (!s.currentPiece || s.phase !== "playing") return;
+    set({ currentPiece: movePiece(s.board, s.currentPiece, -1, 0) });
+  }
+
+  function moveRight() {
+    const s = get();
+    if (!s.currentPiece || s.phase !== "playing") return;
+    set({ currentPiece: movePiece(s.board, s.currentPiece, 1, 0) });
+  }
+
+  function rotateAction() {
+    const s = get();
+    if (!s.currentPiece || s.phase !== "playing") return;
+    set({ currentPiece: rotatePiece(s.board, s.currentPiece) });
+  }
+
   // ── Keyboard ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -255,11 +278,11 @@ export default function PuyoGame() {
       switch (e.key) {
         case "ArrowLeft":
           e.preventDefault();
-          set({ currentPiece: movePiece(s.board, s.currentPiece, -1, 0) });
+          moveLeft();
           break;
         case "ArrowRight":
           e.preventDefault();
-          set({ currentPiece: movePiece(s.board, s.currentPiece, 1, 0) });
+          moveRight();
           break;
         case "ArrowDown":
           e.preventDefault();
@@ -269,7 +292,7 @@ export default function PuyoGame() {
         case "z":
         case "Z":
           e.preventDefault();
-          set({ currentPiece: rotatePiece(s.board, s.currentPiece) });
+          rotateAction();
           break;
         case " ":
           e.preventDefault();
@@ -286,8 +309,9 @@ export default function PuyoGame() {
 
   const s = get();
   const display = buildDisplay(s);
+  const boardWidth = COLS * cellSize + 24;
 
-  function PuyoCell({ cell, size = CELL }: { cell: DisplayCell; size?: number }) {
+  function PuyoCell({ cell, size = cellSize }: { cell: DisplayCell; size?: number }) {
     if (!cell.color) {
       return (
         <div
@@ -340,13 +364,13 @@ export default function PuyoGame() {
     );
   }
 
-  function MiniPuyo({ color }: { color: PuyoColor }) {
+  function MiniPuyo({ color, size = 32 }: { color: PuyoColor; size?: number }) {
     const cfg = PUYO[color];
     return (
       <div
         style={{
-          width: 32,
-          height: 32,
+          width: size,
+          height: size,
           borderRadius: "50%",
           background: cfg.grad,
           boxShadow: `0 0 12px ${cfg.glow}88, inset 0 -2px 4px rgba(0,0,0,0.4)`,
@@ -358,6 +382,84 @@ export default function PuyoGame() {
       </div>
     );
   }
+
+  function CtrlBtn({ label, onPress, className = "" }: { label: string; onPress: () => void; className?: string }) {
+    return (
+      <button
+        onPointerDown={(e) => { e.preventDefault(); onPress(); }}
+        className={`h-16 rounded-2xl text-white text-2xl font-bold select-none cursor-pointer transition-transform active:scale-90 ${className}`}
+        style={{
+          background: "rgba(255,255,255,0.1)",
+          border: "1px solid rgba(255,255,255,0.2)",
+          backdropFilter: "blur(8px)",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  // Board overlays (chain, idle, gameover) — shared
+  const boardOverlays = (
+    <>
+      {s.displayChain >= 2 && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          style={{ animation: "chainAppear 0.35s cubic-bezier(0.175,0.885,0.32,1.275) forwards" }}
+        >
+          <div
+            className="text-center"
+            style={{
+              background: "linear-gradient(135deg, rgba(124,58,237,0.9), rgba(236,72,153,0.9))",
+              backdropFilter: "blur(8px)",
+              borderRadius: 16,
+              padding: "12px 28px",
+              border: "1px solid rgba(255,255,255,0.3)",
+              boxShadow: "0 0 40px rgba(124,58,237,0.6)",
+            }}
+          >
+            <div className="text-white/70 text-sm font-semibold tracking-widest uppercase">Chain</div>
+            <div className="text-white font-black text-5xl leading-none" style={{ textShadow: "0 0 20px rgba(255,255,255,0.8)" }}>
+              ×{s.displayChain}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {s.phase === "idle" && (
+        <div
+          className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-4 cursor-pointer"
+          style={{ background: "rgba(6,0,26,0.85)", backdropFilter: "blur(8px)" }}
+          onClick={startGame}
+        >
+          <div className="text-white font-black text-4xl tracking-tight">ぷよぷよ</div>
+          <div className="text-white/50 text-sm sm:hidden">タップしてスタート</div>
+          <div className="text-white/50 text-sm hidden sm:block">Press Enter or Space to start</div>
+          <div className="text-white/30 text-xs mt-2 text-center leading-6 hidden sm:block">
+            ← → Move &nbsp;|&nbsp; ↑ / Z Rotate<br />
+            ↓ Soft drop &nbsp;|&nbsp; Space Hard drop
+          </div>
+        </div>
+      )}
+
+      {s.phase === "gameover" && (
+        <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-4"
+          style={{ background: "rgba(6,0,26,0.88)", backdropFilter: "blur(8px)" }}>
+          <div className="text-white/60 font-semibold text-sm tracking-widest uppercase">Game Over</div>
+          <div className="text-white font-black text-3xl">{s.score.toLocaleString()}</div>
+          <div className="text-white/40 text-sm">Best chain ×{s.maxChain}</div>
+          <button
+            onClick={startGame}
+            className="mt-2 px-6 py-2.5 rounded-xl font-bold text-white text-sm cursor-pointer transition-all hover:scale-105 active:scale-95"
+            style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", boxShadow: "0 0 20px rgba(124,58,237,0.5)" }}
+          >
+            もう一度
+          </button>
+        </div>
+      )}
+    </>
+  );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -389,18 +491,17 @@ export default function PuyoGame() {
         ))}
       </div>
 
-      {/* Main layout */}
-      <div className="relative z-10 flex items-start gap-6">
+      {/* ══════════════════════════════════════════
+          Desktop layout (sm and above)
+      ══════════════════════════════════════════ */}
+      <div className="relative z-10 hidden sm:flex items-start gap-6">
 
-        {/* ── Left panel: stats ── */}
+        {/* Left panel: stats */}
         <div className="flex flex-col gap-4 w-36">
-          {/* Score */}
           <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
             <div className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-1">Score</div>
             <div className="text-white font-bold text-2xl tabular-nums leading-tight">{s.score.toLocaleString()}</div>
           </div>
-
-          {/* Level */}
           <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
             <div className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-1">Level</div>
             <div className="text-white font-bold text-2xl">{s.level}</div>
@@ -414,27 +515,22 @@ export default function PuyoGame() {
               />
             </div>
           </div>
-
-          {/* Best chain */}
           <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
             <div className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-1">Best Chain</div>
             <div className="text-white font-bold text-2xl">{s.maxChain > 0 ? `×${s.maxChain}` : "—"}</div>
           </div>
-
-          {/* Cleared */}
           <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
             <div className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-1">Cleared</div>
             <div className="text-white font-bold text-2xl">{s.totalCleared}</div>
           </div>
         </div>
 
-        {/* ── Center: game board ── */}
+        {/* Center: game board */}
         <div className="relative">
-          {/* Board frame */}
           <div
             className="relative rounded-2xl overflow-hidden"
             style={{
-              width: COLS * CELL + 24,
+              width: boardWidth,
               padding: 12,
               background: "rgba(255,255,255,0.04)",
               backdropFilter: "blur(24px)",
@@ -442,12 +538,11 @@ export default function PuyoGame() {
               boxShadow: "0 0 60px rgba(124,58,237,0.15), 0 25px 50px rgba(0,0,0,0.5)",
             }}
           >
-            {/* Grid */}
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: `repeat(${COLS}, ${CELL}px)`,
-                gridTemplateRows: `repeat(${ROWS}, ${CELL}px)`,
+                gridTemplateColumns: `repeat(${COLS}, ${cellSize}px)`,
+                gridTemplateRows: `repeat(${ROWS}, ${cellSize}px)`,
                 gap: 2,
               }}
             >
@@ -457,66 +552,12 @@ export default function PuyoGame() {
                 ))
               )}
             </div>
-
-            {/* Chain announcement */}
-            {s.displayChain >= 2 && (
-              <div
-                className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                style={{ animation: "chainAppear 0.35s cubic-bezier(0.175,0.885,0.32,1.275) forwards" }}
-              >
-                <div
-                  className="text-center"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(124,58,237,0.9), rgba(236,72,153,0.9))",
-                    backdropFilter: "blur(8px)",
-                    borderRadius: 16,
-                    padding: "12px 28px",
-                    border: "1px solid rgba(255,255,255,0.3)",
-                    boxShadow: "0 0 40px rgba(124,58,237,0.6)",
-                  }}
-                >
-                  <div className="text-white/70 text-sm font-semibold tracking-widest uppercase">Chain</div>
-                  <div className="text-white font-black text-5xl leading-none" style={{ textShadow: "0 0 20px rgba(255,255,255,0.8)" }}>
-                    ×{s.displayChain}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Overlays */}
-            {s.phase === "idle" && (
-              <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-4"
-                style={{ background: "rgba(6,0,26,0.85)", backdropFilter: "blur(8px)" }}>
-                <div className="text-white font-black text-4xl tracking-tight">ぷよぷよ</div>
-                <div className="text-white/50 text-sm">Press Enter or Space to start</div>
-                <div className="text-white/30 text-xs mt-2 text-center leading-6">
-                  ← → Move &nbsp;|&nbsp; ↑ / Z Rotate<br />
-                  ↓ Soft drop &nbsp;|&nbsp; Space Hard drop
-                </div>
-              </div>
-            )}
-
-            {s.phase === "gameover" && (
-              <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-4"
-                style={{ background: "rgba(6,0,26,0.88)", backdropFilter: "blur(8px)" }}>
-                <div className="text-white/60 font-semibold text-sm tracking-widest uppercase">Game Over</div>
-                <div className="text-white font-black text-3xl">{s.score.toLocaleString()}</div>
-                <div className="text-white/40 text-sm">Best chain ×{s.maxChain}</div>
-                <button
-                  onClick={startGame}
-                  className="mt-2 px-6 py-2.5 rounded-xl font-bold text-white text-sm cursor-pointer transition-all hover:scale-105 active:scale-95"
-                  style={{ background: "linear-gradient(135deg, #7c3aed, #ec4899)", boxShadow: "0 0 20px rgba(124,58,237,0.5)" }}
-                >
-                  Play Again
-                </button>
-              </div>
-            )}
+            {boardOverlays}
           </div>
         </div>
 
-        {/* ── Right panel: next piece + controls ── */}
+        {/* Right panel: next piece + controls */}
         <div className="flex flex-col gap-4 w-36">
-          {/* Next piece */}
           <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
             <div className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-3">Next</div>
             <div className="flex flex-col items-center gap-1.5">
@@ -524,8 +565,6 @@ export default function PuyoGame() {
               <MiniPuyo color={s.nextPiece.mainColor} />
             </div>
           </div>
-
-          {/* Controls */}
           <div className="rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-4">
             <div className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-3">Controls</div>
             <div className="space-y-2">
@@ -542,6 +581,94 @@ export default function PuyoGame() {
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════
+          Mobile layout (below sm)
+      ══════════════════════════════════════════ */}
+      <div className="relative z-10 flex sm:hidden flex-col items-center gap-3 w-full px-3 py-4">
+
+        {/* Top stats row */}
+        <div className="flex gap-2 w-full" style={{ maxWidth: boardWidth + 68 }}>
+          {[
+            { label: "スコア", value: s.score.toLocaleString() },
+            { label: "レベル", value: String(s.level) },
+            { label: "チェーン", value: s.maxChain > 0 ? `×${s.maxChain}` : "—" },
+            { label: "消した数", value: String(s.totalCleared) },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex-1 rounded-xl bg-white/5 border border-white/10 p-2 text-center">
+              <div className="text-white/40 text-[9px] font-semibold uppercase tracking-wider leading-none mb-1">{label}</div>
+              <div className="text-white font-bold text-sm tabular-nums leading-tight">{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Board + Next side panel */}
+        <div className="flex items-start gap-3">
+          {/* Game board */}
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              width: boardWidth,
+              padding: 12,
+              background: "rgba(255,255,255,0.04)",
+              backdropFilter: "blur(24px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 0 60px rgba(124,58,237,0.15), 0 25px 50px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${COLS}, ${cellSize}px)`,
+                gridTemplateRows: `repeat(${ROWS}, ${cellSize}px)`,
+                gap: 2,
+              }}
+            >
+              {display.map((row, r) =>
+                row.map((cell, c) => (
+                  <PuyoCell key={`m-${r}-${c}`} cell={cell} />
+                ))
+              )}
+            </div>
+            {boardOverlays}
+          </div>
+
+          {/* Next piece */}
+          <div className="flex flex-col gap-2">
+            <div className="rounded-xl bg-white/5 border border-white/10 p-3">
+              <div className="text-white/40 text-[9px] font-semibold uppercase tracking-wider mb-2 text-center">次</div>
+              <div className="flex flex-col items-center gap-1.5">
+                <MiniPuyo color={s.nextPiece.subColor} size={26} />
+                <MiniPuyo color={s.nextPiece.mainColor} size={26} />
+              </div>
+            </div>
+            {/* Level progress */}
+            <div className="rounded-xl bg-white/5 border border-white/10 p-3 text-center">
+              <div className="text-white/40 text-[9px] font-semibold uppercase tracking-wider mb-1">Lv</div>
+              <div className="text-white font-bold text-base">{s.level}</div>
+              <div className="mt-1.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${((s.totalCleared % 20) / 20) * 100}%`,
+                    background: "linear-gradient(90deg, #7c3aed, #ec4899)",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Touch control buttons */}
+        <div className="flex flex-col gap-2" style={{ width: boardWidth }}>
+          <div className="flex gap-2">
+            <CtrlBtn label="←" onPress={moveLeft} className="flex-1" />
+            <CtrlBtn label="↻" onPress={rotateAction} className="flex-1" />
+            <CtrlBtn label="→" onPress={moveRight} className="flex-1" />
+          </div>
+          <CtrlBtn label="↓" onPress={softDrop} className="w-full" />
         </div>
       </div>
     </div>
